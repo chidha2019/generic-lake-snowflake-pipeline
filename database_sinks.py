@@ -51,7 +51,7 @@ class TargetSinksManager:
             MERGE (t:SnowflakeTable { id: $snowDatabase + '.' + $snowSchema + '.' + $snowTable })
             ON CREATE SET t.name = $snowTable, t.schema = $snowSchema, t.database = $snowDatabase
             
-            # Record the execution pipeline vector path
+            // Record the execution pipeline vector path
             MERGE (l)-[r:INGESTED_INTO { timestamp: timestamp(), status: 'COMPLETED' }]->(t)
             
             WITH t

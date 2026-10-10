@@ -1,0 +1,21 @@
+# One file per pipeline. main.py runs any job file; the knowledge-graph crawler reads these directly.
+name: premium_whole_life
+description: Load whole life premium transactions from the data lake into the EDW ledger.
+owner: data-engineering
+ticket: DEPO-0000            # Jira key that requested this pipeline
+schedule: "0 * * * *"        # hourly (cron); used by the orchestrator
+
+source:
+  lake_uri: s3://massmutual-data-lake/premium-streams/
+  format: Parquet
+  stage: MASSMUTUAL_EDW.RETAIL_INSURANCE.MY_S3_STAGE
+  file_pattern: ".*[.]parquet"
+
+target:
+  database: MASSMUTUAL_EDW
+  schema: RETAIL_INSURANCE
+  table: SNOW_WHOLE_LIFE_LEDGER
+  columns:
+    - {name: POLICY_ID, type: VARCHAR(64)}
+    - {name: PREMIUM_AMOUNT, type: "NUMBER(18,2)"}
+    - {name: TRANSACTION_DATE, type: TIMESTAMP_NTZ}

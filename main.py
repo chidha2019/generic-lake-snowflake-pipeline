@@ -1,42 +1,48 @@
-from database_sinks.py import TargetSinksManager
+import argparse
 
-def run_generic_ingestion_pipeline():
-    print("⚡ Starting Generic Data Lake to Snowflake Metadata-Driven Pipeline...")
-    sinks = TargetSinksManager()
+import yaml
 
-    # 1. Structural runtime payload configuration
-    # In production, this can be dynamically constructed via file landing alerts (AWS S3 Event / Azure Event Grid)
-    INGEST_JOB = {
-        "lakeUri": "s3://massmutual-data-lake/premium-streams/2026/10/09/batch_99.parquet",
-        "format": "Parquet",
-        "snowDatabase": "MASSMUTUAL_EDW",
-        "snowSchema": "RETAIL_INSURANCE",
-        "snowTable": "SNOW_WHOLE_LIFE_LEDGER",
-        "columns": [
-            {"name": "POLICY_ID", "type": "VARCHAR(64)"},
-            {"name": "PREMIUM_AMOUNT", "type": "NUMBER(18,2)"},
-            {"name": "TRANSACTION_DATE", "type": "TIMESTAMP_NTZ"}
-        ]
+from database_sinks import TargetSinksManager   # fixed: module name, not file name
+
+
+def load_job(path: str) -> dict:
+    """Read a job definition (jobs/*.yaml) into the payload the sinks expect."""
+    with open(path, encoding="utf-8") as f:
+        job = yaml.safe_load(f)
+    src, tgt = job["source"], job["target"]
+    return {
+        "name": job["name"],
+        "stage": src["stage"],
+        "filePattern": src["file_pattern"],
+        "lakeUri": src["lake_uri"],
+        "format": src["format"],
+        "snowDatabase": tgt["database"],
+        "snowSchema": tgt["schema"],
+        "snowTable": tgt["table"],
+        "columns": tgt["columns"],
     }
 
-    try:
-        # Step A: Execute data loading inside your Snowflake storage layer
-        full_target_string = f"{INGEST_JOB['snowDatabase']}.{INGEST_JOB['snowSchema']}.{INGEST_JOB['snowTable']}"
-        sinks.execute_snowflake_load(
-            target_table=full_target_string,
-            stage_name="MASSMUTUAL_EDW.RETAIL_INSURANCE.MY_S3_STAGE",
-            file_pattern=".*batch_99.parquet"
-        )
 
-        # Step B: Record the execution path inside your Knowledge Graph memory layer
-        sinks.write_graph_lineage(INGEST_JOB)
-        
+def run_generic_ingestion_pipeline(job_path: str) -> None:
+    job = load_job(job_path)
+    print(f"⚡ Starting metadata-driven pipeline '{job['name']}' ({job_path})...")
+    sinks = TargetSinksManager()
+    try:
+        # Step A: load files from the stage into Snowflake
+        full_target = f"{job['snowDatabase']}.{job['snowSchema']}.{job['snowTable']}"
+        sinks.execute_snowflake_load(target_table=full_target, stage_name=job["stage"], file_pattern=job["filePattern"])
+
+        # Step B: record lineage in the knowledge graph
+        sinks.write_graph_lineage(job)
     except Exception as err:
-        print(f"❌ Pipeline Ingestion Failure Encountered: {str(err)}")
-        
+        print(f"❌ Pipeline Ingestion Failure Encountered: {err}")
+        raise
     finally:
         sinks.close()
         print("🏁 Sequence Terminated cleanly.")
 
+
 if __name__ == "__main__":
-    run_generic_ingestion_pipeline()
+    parser = argparse.ArgumentParser(description="Run one ingestion job definition.")
+    parser.add_argument("job", nargs="?", default="jobs/premium_whole_life.yaml", help="Path to a jobs/*.yaml file")
+    run_generic_ingestion_pipeline(parser.parse_args().job)
